@@ -1,1 +1,64 @@
+---
+title: "Detection of off-bottom movements from Monkfish DST data"
+output: rmarkdown::github_document
+---
+
+Extensive vertical movements of monkfish can be recorded by the data storage tags (DSTs). Such behavior may be related to spawning, foraging, or tidal-based migration behavior. In this notebook I explore a method to detect off-bottom movements from monkfish DST data. I first remove the baseline from the depth timeseries data and then detect peaks in the corrected signal.
+
+```{r}
+library(R.matlab)
+library('baseline')
+library("wmtsa")
+library(ggplot2)
+source('matlab_time.R')
+```
+
+Read the preprocessed tag data:
+```{r}
+matlabFile  <- readMat('/Users/cliu/Dropbox/Geolocation/projects/monkfish/Preprocessing/processed_tags/10_raw.mat')
+varNames    <- names(matlabFile$tag[,,1])
+tag     <- matlabFile$tag
+tag     <- lapply(tag, unlist, use.names=FALSE)
+names(tag) <- varNames
+```
+
+Plot the depth timeseries:
+```{r}
+
+df<-data.frame(date=matlab2POS(tag$dnum), depth=tag$depth)
+data <- split(df$depth, as.Date(df$date))
+plot(df,type="l",ylim = rev(range(tag[["depth"]])), col="blue")
+```
+
+Use the `baseline` package to detece the baseline signal, and correct the signal (substracting the baseline from the original signal):
+```{r}
+peakDetection <- baseline(t(-df$depth), method = "peakDetection", left=36, lwin=5)
+plot(peakDetection, labels=df$date)
+```
+
+Use the `wmtsa` package to detect peaks in the corrected signal:
+```{r}
+x = wavCWT(t(peakDetection@corrected))
+xtree = wavCWTTree(x)
+P = wavCWTPeaks(xtree, noise.min=7, noise.span=36)
+plot(t(peakDetection@corrected), type="l")
+points(P$x, P$y,pch=3,col="red")
+
+plot(-df$depth, type="l")
+points(P$x, -df$depth[P$x],pch=3,col="red")
+lines(t(peakDetection@baseline), type="l", col="blue")
+```
+
+```{r}
+Pdf = data.frame(x=df$date[P$x], y=df$depth[P$x])
+ggplot(data=df, aes(x=date, y=depth)) +geom_line() +geom_point(data=Pdf, aes(x=x, y=y), shape=3, color="red") +scale_y_reverse() 
+```
+
+Output the detected off-bottom movement events into a dataframe:
+```{r}
+df_offbottom <- df[P$x,]
+rownames(df_offbottom) <- 1:nrow(df_offbottom)
+df_offbottom
+```
+
 
