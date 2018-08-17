@@ -1,0 +1,79 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(R.matlab)
+library(dtwclust)
+```
+
+```{r}
+# matlabFile  <- readMat('/Users/cliu/Dropbox/Geolocation/projects/Halibut/Maine Atlantic halibut analyses/preprocessing/processed_tags/10_raw.mat')
+matlabFile  <- readMat('/Users/cliu/Dropbox/Geolocation/projects/cod_zemeckis/tag_data/13_raw.mat')
+varNames    <- names(matlabFile$tag[,,1])
+tag     <- matlabFile$tag
+tag     <- lapply(tag, unlist, use.names=FALSE)
+names(tag) <- varNames
+```
+
+```{r}
+source('matlab_time.R')
+df<-data.frame(date=matlab2POS(tag$dnum), depth=tag$depth)
+data <- split(df$depth, as.Date(df$date))
+plot(df,type="l",ylim = rev(range(tag[["depth"]])), col="blue")
+```
+
+## Using DTW to cluster daily depth series
+
+```{r}
+pc <- tsclust(data, type = "partitional", k = 3L,
+    distance = "dtw_basic", centroid = "pam",
+    seed = 3247L, trace = TRUE,
+    args = tsclust_args(dist = list(window.size = 10L)))
+plot(pc)
+
+```
+
+```{r}
+pc@cluster
+```
+
+## Clustering based on skew and distance
+
+```{r}
+skew<-function(x) length(x)/((length(x)-1) * (length(x)-2)) * sum(( (x-mean(x))/sd(x) )^3 )
+distance<-function(x) abs(median(x)-max(x))
+skewlist=c()
+dlist=c()
+for (name in names(data)) {
+  skewlist <- append(skewlist, skew(data[[name]]))
+  dlist <- append(dlist, distance(data[[name]]))
+}
+metricdf <- data.frame(date=names(data), skew=skewlist, distance=dlist)
+
+```
+
+```{r}
+fit.km <- kmeans(metricdf[2:3], 3, nstart=2)
+metricdf$cluster = as.character(fit.km$cluster)
+metricdf
+ggplot(data = metricdf, aes(x=skew, y=distance)) + 
+             geom_point(aes(colour=cluster))
+```
+
+```{r}
+pc1=pc
+pc1@cluster=fit.km$cluster
+plot(pc1)
+fit.km$cluster
+```
+
+
+
